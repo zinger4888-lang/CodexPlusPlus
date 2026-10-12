@@ -2258,8 +2258,8 @@ mod computer_use_tests {
 }
 
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
-const MAX_HTTP_BODY_BYTES: usize = 32 * 1024 * 1024;
-const MAX_HTTP_ENCODED_BODY_BYTES: usize = 64 * 1024 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 128 * 1024 * 1024;
+const MAX_HTTP_ENCODED_BODY_BYTES: usize = 256 * 1024 * 1024;
 
 struct HttpRequest {
     headers: Vec<u8>,
@@ -3975,6 +3975,19 @@ mod tests {
 
         assert_eq!(decoded.as_bytes(), body);
         assert!(decode_protocol_proxy_request_body(body, Some("gzip")).is_err());
+    }
+
+    #[test]
+    fn protocol_proxy_request_body_accepts_large_zstd_and_enforces_limit() {
+        let body = vec![b'a'; 33 * 1024 * 1024];
+        let compressed = zstd::stream::encode_all(std::io::Cursor::new(&body), 1).unwrap();
+        let decoded = decode_protocol_proxy_request_body(&compressed, Some("zstd")).unwrap();
+        assert_eq!(decoded.as_bytes(), body);
+
+        let oversized = vec![b'a'; MAX_HTTP_BODY_BYTES + 1];
+        let compressed = zstd::stream::encode_all(std::io::Cursor::new(oversized), 1).unwrap();
+        let error = decode_protocol_proxy_request_body(&compressed, Some("zstd")).unwrap_err();
+        assert!(error.to_string().contains("解压后的请求体超过大小限制"));
     }
 
     #[tokio::test]
